@@ -39,54 +39,56 @@ BOOL OniMapFileRW(__in PINF_PARAM pInfParam, __in LPVOID lpTargetBuff, __in SIZE
     hFile = CreateFile(pInfParam->pHostPath, GENERIC_READ | GENERIC_WRITE,
         0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
 
-    if (hFile == INVALID_HANDLE_VALUE) {
-        puts("[-] Failed to open PE file");
-        goto out;
-    }
+    do {
+        if (hFile == INVALID_HANDLE_VALUE) {
+            puts("[-] Failed to open PE file");
+            break;
+        }
 
-    pInfParam->szHostSize = GetFileSize(hFile, NULL);
-    hMap = CreateFileMapping(hFile, NULL, PAGE_READWRITE,
-        0, pInfParam->szHostSize + pInfParam->szShellcodeSize, NULL);
-    if (!hMap || hMap == INVALID_HANDLE_VALUE) {
-        puts("[-] Failed to create file mapping");
-        goto out;
-    }
+        pInfParam->szHostSize = GetFileSize(hFile, NULL);
+        hMap = CreateFileMapping(hFile, NULL, PAGE_READWRITE,
+            0, pInfParam->szHostSize + pInfParam->szShellcodeSize, NULL);
+        if (!hMap || hMap == INVALID_HANDLE_VALUE) {
+            puts("[-] Failed to create file mapping");
+            break;
+        }
 
-    pInfParam->lpHostMap = MapViewOfFile(hMap, FILE_MAP_READ | FILE_MAP_WRITE,
-        0, 0, 0);
-    if (!pInfParam->lpHostMap) {
-        puts("[-] Failed to obtain a map view of PE file");
-        goto out;
-    }
+        pInfParam->lpHostMap = MapViewOfFile(hMap, FILE_MAP_READ | FILE_MAP_WRITE,
+            0, 0, 0);
+        if (!pInfParam->lpHostMap) {
+            puts("[-] Failed to obtain a map view of PE file");
+            break;
+        }
 
-    puts("[*] Map View of File created");
+        puts("[*] Map View of File created");
 
-    pInfParam->pHostDosHeader = (PIMAGE_DOS_HEADER)pInfParam->lpHostMap;
-    if (pInfParam->pHostDosHeader->e_magic != IMAGE_DOS_SIGNATURE) {
-        puts("[-] DOS signature invalid");
-        goto out;
-    }
+        pInfParam->pHostDosHeader = (PIMAGE_DOS_HEADER)pInfParam->lpHostMap;
+        if (pInfParam->pHostDosHeader->e_magic != IMAGE_DOS_SIGNATURE) {
+            puts("[-] DOS signature invalid");
+            break;
+        }
 
-    pInfParam->pHostNtHeaders = (PIMAGE_NT_HEADERS)(
-        (PBYTE)pInfParam->lpHostMap + pInfParam->pHostDosHeader->e_lfanew);
-    if (pInfParam->pHostNtHeaders->Signature != IMAGE_NT_SIGNATURE) {
-        puts("[-] NT Signature invalid");
-        goto out;
-    }
+        pInfParam->pHostNtHeaders = (PIMAGE_NT_HEADERS)(
+            (PBYTE)pInfParam->lpHostMap + pInfParam->pHostDosHeader->e_lfanew);
+        if (pInfParam->pHostNtHeaders->Signature != IMAGE_NT_SIGNATURE) {
+            puts("[-] NT Signature invalid");
+            break;
+        }
 
-    pInfParam->dwHostNumberOfSections = pInfParam->pHostNtHeaders->FileHeader.NumberOfSections;
-    pInfParam->dwHostSectionAlignment = pInfParam->pHostNtHeaders->OptionalHeader.SectionAlignment;
-    pInfParam->dwHostFileAlignment = pInfParam->pHostNtHeaders->OptionalHeader.FileAlignment;
-    pInfParam->pHostFileHeader = &pInfParam->pHostNtHeaders->FileHeader;
-    pInfParam->szHostSizeOfOptionalHeader = pInfParam->pHostFileHeader->SizeOfOptionalHeader;
-    pInfParam->pHostFirstSectionHeader = IMAGE_FIRST_SECTION(pInfParam->pHostNtHeaders);
-    pInfParam->pNewSectionHeader = &pInfParam->pHostFirstSectionHeader[pInfParam->dwHostNumberOfSections];
-    pInfParam->lpHostFirstByteOfSectionData = (LPVOID)(
-        (PBYTE)(DWORD)pInfParam->pHostFirstSectionHeader->PointerToRawData + (DWORD)pInfParam->lpHostMap);
-    ret = TRUE;
+        pInfParam->dwHostNumberOfSections = pInfParam->pHostNtHeaders->FileHeader.NumberOfSections;
+        pInfParam->dwHostSectionAlignment = pInfParam->pHostNtHeaders->OptionalHeader.SectionAlignment;
+        pInfParam->dwHostFileAlignment = pInfParam->pHostNtHeaders->OptionalHeader.FileAlignment;
+        pInfParam->pHostFileHeader = &pInfParam->pHostNtHeaders->FileHeader;
+        pInfParam->szHostSizeOfOptionalHeader = pInfParam->pHostFileHeader->SizeOfOptionalHeader;
+        pInfParam->pHostFirstSectionHeader = IMAGE_FIRST_SECTION(pInfParam->pHostNtHeaders);
+        pInfParam->pNewSectionHeader = &pInfParam->pHostFirstSectionHeader[pInfParam->dwHostNumberOfSections];
+        pInfParam->lpHostFirstByteOfSectionData = (LPVOID)(
+            (PBYTE)(DWORD)pInfParam->pHostFirstSectionHeader->PointerToRawData + (DWORD)pInfParam->lpHostMap);
+        return TRUE;
+        
+    } while(0);
 
-out:
-    return ret;
+    return FALSE;
 }
 
 VOID OniAppendSectionHeader(__in PINF_PARAM pInfParam, __in LPCSTR cSectionName) {
@@ -168,89 +170,89 @@ BOOL OniCompressInputFile(__in wchar_t *wcUncompressedFilePath,
         FILE_ATTRIBUTE_NORMAL,    //  Normal file
         NULL);                    //  No attr. template
 
-    if (hInputFile == INVALID_HANDLE_VALUE) {
-        wprintf(L"[-] Cannot open \t%s\n", wcUncompressedFilePath);
-        goto done;
-    }
-
-    //  Get input file size.
-    bSuccess = GetFileSizeEx(hInputFile, &liFileSize);
-    if ((!bSuccess) || (liFileSize.QuadPart > 0xFFFFFFFF)) {
-        wprintf(L"[-] Cannot get input file size or file is larger than 4GB.\n");
-        goto done;
-    }
-    dwInputFileSize = liFileSize.LowPart;
-
-    //  Allocate memory for file content.
-    pbInputBuffer = (PBYTE)malloc(dwInputFileSize);
-    if (!pbInputBuffer) {
-        wprintf(L"[-] Cannot allocate memory for uncompressed buffer.\n");
-        goto done;
-    }
-
-    //  Read input file.
-    bSuccess = ReadFile(hInputFile, pbInputBuffer, dwInputFileSize, &dwByteRead, NULL);
-    if ((!bSuccess) || (dwByteRead != dwInputFileSize)) {
-        wprintf(L"[-] Cannot read from \t%s\n", wcUncompressedFilePath);
-        goto done;
-    }
-
-    //  Create an XpressHuff compressor.
-    bSuccess = CreateCompressor(
-        COMPRESS_ALGORITHM_XPRESS_HUFF, //  Compression Algorithm
-        NULL,                           //  Optional allocation routine
-        &chCompressor);                   //  Handle
-
-    if (!bSuccess) {
-        wprintf(L"[-] Cannot create a compressor %d.\n", GetLastError());
-        goto done;
-    }
-
-    //  Query compressed buffer size.
-    bSuccess = Compress(
-        chCompressor,                  //  Compressor Handle
-        pbInputBuffer,                 //  Input buffer, Uncompressed data
-        dwInputFileSize,               //  Uncompressed data size
-        NULL,                        //  Compressed Buffer
-        0,                           //  Compressed Buffer size
-        &_szCompressedBufferSize);      //  Compressed Data size
-
-    //  Allocate memory for compressed buffer.
-    if (!bSuccess) {
-        DWORD ErrorCode = GetLastError();
-
-        if (ErrorCode != ERROR_INSUFFICIENT_BUFFER) {
-            wprintf(L"[-] Cannot compress data: %d.\n", ErrorCode);
-            goto done;
+    do {
+        if (hInputFile == INVALID_HANDLE_VALUE) {
+            wprintf(L"[-] Cannot open \t%s\n", wcUncompressedFilePath);
+            break;
         }
 
-        pbCompressedBuffer = (PBYTE)calloc(1, _szCompressedBufferSize);
-        if (!pbCompressedBuffer) {
-            wprintf(L"[-] Cannot allocate memory for compressed buffer.\n");
-            goto done;
+        //  Get input file size.
+        bSuccess = GetFileSizeEx(hInputFile, &liFileSize);
+        if ((!bSuccess) || (liFileSize.QuadPart > 0xFFFFFFFF)) {
+            wprintf(L"[-] Cannot get input file size or file is larger than 4GB.\n");
+            break;
         }
-    }
+        dwInputFileSize = liFileSize.LowPart;
 
-    //  Call Compress() again to do real compression and output the compressed
-    //  data to CompressedBuffer.
-    bSuccess = Compress(
-        chCompressor,             //  Compressor Handle
-        pbInputBuffer,            //  Input buffer, Uncompressed data
-        dwInputFileSize,          //  Uncompressed data size
-        pbCompressedBuffer,       //  Compressed Buffer
-        _szCompressedBufferSize,   //  Compressed Buffer size
-        &_szCompressedDataSize);   //  Compressed Data size
+        //  Allocate memory for file content.
+        pbInputBuffer = (PBYTE)malloc(dwInputFileSize);
+        if (!pbInputBuffer) {
+            wprintf(L"[-] Cannot allocate memory for uncompressed buffer.\n");
+            break;
+        }
 
-    if (!bSuccess) {
-        wprintf(L"[-] Cannot compress data: %d\n", GetLastError());
-        goto done;
-    }
+        //  Read input file.
+        bSuccess = ReadFile(hInputFile, pbInputBuffer, dwInputFileSize, &dwByteRead, NULL);
+        if ((!bSuccess) || (dwByteRead != dwInputFileSize)) {
+            wprintf(L"[-] Cannot read from \t%s\n", wcUncompressedFilePath);
+            break;
+        }
 
-    *lpCompressedBuffer = pbCompressedBuffer;
-    *szCompressedBufferSize = _szCompressedBufferSize;
-    return TRUE;
+        //  Create an XpressHuff compressor.
+        bSuccess = CreateCompressor(
+            COMPRESS_ALGORITHM_XPRESS_HUFF, //  Compression Algorithm
+            NULL,                           //  Optional allocation routine
+            &chCompressor);                   //  Handle
 
-done:
+        if (!bSuccess) {
+            wprintf(L"[-] Cannot create a compressor %d.\n", GetLastError());
+            break;
+        }
+
+        //  Query compressed buffer size.
+        bSuccess = Compress(
+            chCompressor,                  //  Compressor Handle
+            pbInputBuffer,                 //  Input buffer, Uncompressed data
+            dwInputFileSize,               //  Uncompressed data size
+            NULL,                        //  Compressed Buffer
+            0,                           //  Compressed Buffer size
+            &_szCompressedBufferSize);      //  Compressed Data size
+
+        //  Allocate memory for compressed buffer.
+        if (!bSuccess) {
+            DWORD ErrorCode = GetLastError();
+
+            if (ErrorCode != ERROR_INSUFFICIENT_BUFFER) {
+                wprintf(L"[-] Cannot compress data: %d.\n", ErrorCode);
+                break;
+            }
+
+            pbCompressedBuffer = (PBYTE)calloc(1, _szCompressedBufferSize);
+            if (!pbCompressedBuffer) {
+                wprintf(L"[-] Cannot allocate memory for compressed buffer.\n");
+                break;
+            }
+        }
+
+        bSuccess = Compress(
+            chCompressor,             //  Compressor Handle
+            pbInputBuffer,            //  Input buffer, Uncompressed data
+            dwInputFileSize,          //  Uncompressed data size
+            pbCompressedBuffer,       //  Compressed Buffer
+            _szCompressedBufferSize,   //  Compressed Buffer size
+            &_szCompressedDataSize);   //  Compressed Data size
+
+        if (!bSuccess) {
+            wprintf(L"[-] Cannot compress data: %d\n", GetLastError());
+            break;
+        }
+
+        *lpCompressedBuffer = pbCompressedBuffer;
+        *szCompressedBufferSize = _szCompressedBufferSize;
+        return TRUE;
+        
+    } while(0);
+
     if (chCompressor != NULL) {
         CloseCompressor(chCompressor);
     }
