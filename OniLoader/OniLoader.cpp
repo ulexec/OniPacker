@@ -98,7 +98,7 @@ BOOL OniGetLoaderSection(__in PONI_PARAM pOniParam) {
 #ifdef _WIN32
 	pPeb = (_PPEB)__readfsdword(0x30);
 #else
-	pPeb = (_PPEB)__readgsdword(0x30);
+	pPeb = (_PPEB)__readgsdword(0x60);
 #endif
 	pOniParam->lpLoaderBase = pPeb->lpImageBaseAddress;
 	return TRUE;
@@ -495,7 +495,7 @@ BOOL OniRunImage(__in PONI_PARAM pOniParam) {
 #ifdef _WIN32
 	pPeb = (_PPEB)__readfsdword(0x30);
 #else
-	pPeb = (_PPEB)__readgsdword(0x30);
+	pPeb = (_PPEB)__readgsdword(0x60);
 #endif
 	pPeb->lpImageBaseAddress = (LPVOID)pOniParam->dwImageBase;
 	
